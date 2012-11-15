@@ -2,6 +2,9 @@
 
 #include "phasecorrelation.h"
 
+#include <opencv/cxcore.h>
+//#include <opencv2/imgproc.hpp> //this one should do the trick for cvLogPolar, fix my system so that i can remove next line..
+#include <opencv2/opencv.hpp>
 
 using namespace cv;
 

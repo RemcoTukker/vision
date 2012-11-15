@@ -9,6 +9,7 @@
 //
 // result
 // *check whether it might be better to use a different center for logpolar conversion
+// *fix ambiguity between clockwise and anticlockwise rotations, related to ^ (see original paper)
 // *maybe use Hanning window, do we care about edge effects?
 // *find out whats going wrong in fourier space, if anything
 // *add translation, zoom
