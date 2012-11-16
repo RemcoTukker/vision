@@ -17,6 +17,7 @@
 // *optionally multiple with prior to get more reliable result
 // *get subpixel result by fitting peak
 // *check if corners in logpolar coordinates do indeed mess up fft result (and what about zero padding?)
+// *fix window in rotated images to actually maximalize area, instead of the conservative square chosen now
 //
 // usability
 // *check for image size and type and change parameters accordingly

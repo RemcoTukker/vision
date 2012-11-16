@@ -24,30 +24,59 @@ void PhaseCorrelation::insertFrame(const Mat& nextFrame)  //frame should be 640*
     newFramePolarDFT.release();
     nextFrame.copyTo(newFrame);
 
-        // fill newFrameDFT
-        // Mat planes2[] = {newFrame, Mat::zeros(newFrame.size(), CV_32F)};
-        // Mat complex2;
-        // merge(planes2, 2, complex2);
-        // dft(complex2, complex2);
-        // complex2.copyTo(newFrameDFT);
-
     return;
 }
 
 
 Vec4f PhaseCorrelation::findCorrelation()
 {
+    if (oldFrame.empty()) return Vec4f(0,0,0,0);
+
     // first get the scaling and rotation
     Vec2f rot = findRotation();
 
-    //oh dear, now we have to calculate a different DFT after all; TODO manage stuff a bit more intelligently...
+    //use this rotation and scaling to calculate a new version of newFrame or oldFrame, depending on which one is bigger
+    Vec2f trans;
+    if (rot[0] > 1)  // oldFrame is bigger than newFrame, so turn oldFrame
+    {
+        Mat rotMat = getRotationMatrix2D( Point2f(oldFrame.size().width/2, oldFrame.size().height/2), rot[1], rot[0]);
+        Mat oldRotated;
+        warpAffine(oldFrame, oldRotated, rotMat, Size(240,240) );
 
-    return Vec4f(0,0,0,0);
+        Mat dftready;
+        oldRotated.convertTo(dftready, CV_32F, 1.0/255);
+        calculateDFT(dftready, oldRotatedDFT);
+
+        //dftready = newFrame.colRange().rowRange();
+
+        //TODO make only dft of part of the image
+        if (newFrameDFT.empty())
+        {
+            Mat dftready;
+            newFrame.convertTo(dftready, CV_32F, 1.0/255);
+            calculateDFT(dftready, newFrameDFT);
+        }
+
+        trans = crossPowerSpectrumPeak(oldRotatedDFT, newCroppedDFT);
+    }
+    else   // newFrame is bigger than oldFrame, so turn newFrame
+    {
+        if (oldFrameDFT.empty())
+        {
+            Mat dftready;
+            oldFrame.convertTo(dftready, CV_32F, 1.0/255);
+            calculateDFT(dftready, oldFrameDFT);
+        }
+
+        //trans = crossPowerSpectrumPeak(oldCroppedDFT, newRotatedDFT);
+    }
+
+    return Vec4f(trans[0],trans[1],rot[0],rot[1]);
 }
 
 Vec2f PhaseCorrelation::findRotation()
 {
-    if (oldFrame.empty()) return Point2f(0,0);
+    if (oldFrame.empty()) return Vec2f(0,0);
 
     if (oldFramePolarDFT.empty())
     {
@@ -70,16 +99,20 @@ Vec2f PhaseCorrelation::findRotation()
 
 Vec2f PhaseCorrelation::findTranslation()
 {
-    if (oldFrame.empty() ) return Point2f(0,0); //if withTrans == false, oldFrameDFT will be empty anyway
+    if (oldFrame.empty() ) return Vec2f(0,0);
 
     if (oldFrameDFT.empty())
     {
-        calculateDFT(oldFrame, oldFramePolarDFT);
+        Mat dftready;
+        oldFrame.convertTo(dftready, CV_32F, 1.0/255);
+        calculateDFT(dftready, oldFrameDFT);
     }
 
     if (newFrameDFT.empty())
     {
-        calculateDFT(newFrame, newFramePolarDFT);
+        Mat dftready;
+        newFrame.convertTo(dftready, CV_32F, 1.0/255);
+        calculateDFT(dftready, newFrameDFT);
     }
 
     return crossPowerSpectrumPeak(oldFrameDFT, newFrameDFT);
@@ -155,11 +188,9 @@ void PhaseCorrelation::calculatePolarDFT(const Mat& src, Mat& dst)
 
 void PhaseCorrelation::calculateDFT(const Mat& src, Mat& dst)
 {
-    Mat planes[] = {src, Mat::zeros(src.size(), CV_32F)}; //make it complex for FFT
+    Mat planes[] = {src, Mat::zeros(src.size(), CV_32F)}; //make it 2 channel for FFT
     Mat complexI;
     merge(planes, 2, complexI );
-
-    dft(complexI, complexI);  // maybe we can speed up here because we have only real input?
-    complexI.copyTo(dst);
+    dft(complexI, dst);  // maybe we can speed up here because we have only real input?
 }
 
