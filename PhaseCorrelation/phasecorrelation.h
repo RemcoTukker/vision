@@ -14,7 +14,6 @@
 // *fix ambiguity between clockwise and anticlockwise rotations, related to ^ (see original paper)
 // *maybe use Hanning window, do we care about edge effects?
 // *find out whats going wrong in fourier space (logpolar), if anything
-// *add translation, zoom
 // *optionally multiple with prior to get more reliable result
 // *get subpixel result by fitting peak
 // *check if corners in logpolar coordinates do indeed mess up fft result (and what about zero padding?)
@@ -46,7 +45,7 @@ using namespace cv;
 class PhaseCorrelation
 {
     public:
-        PhaseCorrelation(bool withTranslation = true, bool withRotation = true);
+        PhaseCorrelation();
         void insertFrame(const Mat& nextFrame);
         Vec4f findCorrelation(); //the whole package
         Vec2f findRotation();    //only calculate rotation and scaling
@@ -54,12 +53,14 @@ class PhaseCorrelation
     protected:
     private:
         Vec2f crossPowerSpectrumPeak(const Mat& dft1, const Mat& dft2);
+        void calculatePolarDFT(const Mat& src, Mat& dst);
+        void calculateDFT(const Mat& src, Mat& dst);
         Mat oldFramePolarDFT;
         Mat newFramePolarDFT;
         Mat oldFrameDFT;
         Mat newFrameDFT;
-        bool withRot;
-        bool withTrans;
+        Mat oldFrame;
+        Mat newFrame;
 };
 
 #endif // PHASECORRELATION_H

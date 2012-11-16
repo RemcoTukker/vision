@@ -8,48 +8,28 @@
 
 using namespace cv;
 
-PhaseCorrelation::PhaseCorrelation(bool withTranslation, bool withRotation) //default is true for both
+PhaseCorrelation::PhaseCorrelation()
 {
-    withRot = withRotation;
-    withTrans = withTranslation;
+
 }
 
 void PhaseCorrelation::insertFrame(const Mat& nextFrame)  //frame should be 640*480 for now!
 {
     //make place for the new frame and move the previous frame to the old frame variables
-    swap(oldFramePolarDFT, newFramePolarDFT);
+    swap(oldFramePolarDFT, newFramePolarDFT); //is swap actually a good idea here?
     swap(oldFrameDFT, newFrameDFT);
+    swap(oldFrame, newFrame);
 
-    if (withRot)
-    {
-        //get the logpolar representation of it to fill newFramePolarDFT; this stuff is _slow_ , thats why its behind the if
-        Mat newFrameLogPolar;
-        IplImage img = nextFrame;
-        IplImage* src = &img;
-        IplImage* dst = cvCreateImage( cvGetSize(src), 8, 1  );
-        //cvLogPolar should go faster with a fixed mapping and/or no interpolation; also, image size will change!
-        cvLogPolar( src, dst, cvPoint2D32f(nextFrame.size().width/2,nextFrame.size().height/2), 80, CV_INTER_LINEAR+CV_WARP_FILL_OUTLIERS );
-        Mat(dst).colRange(Range(0,420)).convertTo(newFrameLogPolar, CV_32F, 1.0/255);
-        //NB colRange to get rid of the black corners that mess up the FFT result (?)
+    newFrameDFT.release();        //make the new ones empty, so that we know whether they are filled and up to date or not
+    newFramePolarDFT.release();
+    nextFrame.copyTo(newFrame);
 
-        //finally, calculate the DFT of the logpolar representation of the image
-        Mat planes[] = {newFrameLogPolar, Mat::zeros(newFrameLogPolar.size(), CV_32F)}; //make it complex for FFT
-        Mat complexI;
-        merge(planes, 2, complexI );
-
-        dft(complexI, complexI);  // maybe we can speed up here because we have only real input?
-        complexI.copyTo(newFramePolarDFT);
-    }
-
-    if (withTrans)
-    {
         // fill newFrameDFT
-       // Mat planes2[] = {newFrame, Mat::zeros(newFrame.size(), CV_32F)};
-       // Mat complex2;
-       // merge(planes2, 2, complex2);
-       // dft(complex2, complex2);
-       // complex2.copyTo(newFrameDFT);
-    }
+        // Mat planes2[] = {newFrame, Mat::zeros(newFrame.size(), CV_32F)};
+        // Mat complex2;
+        // merge(planes2, 2, complex2);
+        // dft(complex2, complex2);
+        // complex2.copyTo(newFrameDFT);
 
     return;
 }
@@ -67,20 +47,40 @@ Vec4f PhaseCorrelation::findCorrelation()
 
 Vec2f PhaseCorrelation::findRotation()
 {
-    if (oldFramePolarDFT.empty()) return Point2f(0,0);  //if withRot == false, oldFramePolarDFT will be empty anyway
+    if (oldFrame.empty()) return Point2f(0,0);
+
+    if (oldFramePolarDFT.empty())
+    {
+        calculatePolarDFT(oldFrame, oldFramePolarDFT);
+    }
+
+    if (newFramePolarDFT.empty())
+    {
+        calculatePolarDFT(newFrame, newFramePolarDFT);
+    }
 
     Vec2f result = crossPowerSpectrumPeak(oldFramePolarDFT, newFramePolarDFT);
 
     // reverse logpolar transform
     result[1] = result[1] * 360.0 / (float) oldFramePolarDFT.size().height ; //in degrees obviously
-
+    //result[0] = exp result[0]  *  ....
 
     return result;
 }
 
 Vec2f PhaseCorrelation::findTranslation()
 {
-    if (oldFrameDFT.empty() ) return Point2f(0,0); //if withTrans == false, oldFrameDFT will be empty anyway
+    if (oldFrame.empty() ) return Point2f(0,0); //if withTrans == false, oldFrameDFT will be empty anyway
+
+    if (oldFrameDFT.empty())
+    {
+        calculateDFT(oldFrame, oldFramePolarDFT);
+    }
+
+    if (newFrameDFT.empty())
+    {
+        calculateDFT(newFrame, newFramePolarDFT);
+    }
 
     return crossPowerSpectrumPeak(oldFrameDFT, newFrameDFT);
 }
@@ -135,3 +135,31 @@ Vec2f PhaseCorrelation::crossPowerSpectrumPeak(const Mat& dft1, const Mat& dft2)
     return Vec2f(maxLoc.x, maxLoc.y);
 
 }
+
+void PhaseCorrelation::calculatePolarDFT(const Mat& src, Mat& dst)
+{
+    //get the logpolar representation of it to fill newFramePolarDFT; this stuff is _slow_ , thats why its behind the if
+    Mat frameLogPolar;
+    IplImage img = src;
+    IplImage* img2 = &img;
+    IplImage* logPolar = cvCreateImage( cvGetSize(img2), 8, 1  );
+    //cvLogPolar should go faster with a fixed mapping and/or no interpolation; also, image size will change!
+    cvLogPolar( img2, logPolar, cvPoint2D32f(src.size().width/2, src.size().height/2), 80, CV_INTER_LINEAR+CV_WARP_FILL_OUTLIERS );
+    Mat(logPolar).colRange(Range(0,420)).convertTo(frameLogPolar, CV_32F, 1.0/255);
+    //NB colRange to get rid of the black corners that mess up the FFT result (?)
+
+    //finally, calculate the DFT of the logpolar representation of the image
+    calculateDFT(frameLogPolar, dst);
+
+}
+
+void PhaseCorrelation::calculateDFT(const Mat& src, Mat& dst)
+{
+    Mat planes[] = {src, Mat::zeros(src.size(), CV_32F)}; //make it complex for FFT
+    Mat complexI;
+    merge(planes, 2, complexI );
+
+    dft(complexI, complexI);  // maybe we can speed up here because we have only real input?
+    complexI.copyTo(dst);
+}
+
