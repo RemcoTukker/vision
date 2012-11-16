@@ -8,49 +8,88 @@
 
 using namespace cv;
 
-PhaseCorrelation::PhaseCorrelation()
+PhaseCorrelation::PhaseCorrelation(bool withTranslation, bool withRotation) //default is true for both
 {
-    //ctor
+    withRot = withRotation;
+    withTrans = withTranslation;
 }
 
-void PhaseCorrelation::insertFrame(Mat& nextFrame)  //frame should be 640*480 for now!
+void PhaseCorrelation::insertFrame(const Mat& nextFrame)  //frame should be 640*480 for now!
 {
     //make place for the new frame and move the previous frame to the old frame variables
-    swap(oldFrame, newFrame);
-    swap(oldFrameLogPolar, newFrameLogPolar);
     swap(oldFramePolarDFT, newFramePolarDFT);
+    swap(oldFrameDFT, newFrameDFT);
 
-    //fill newFrame with received frame
-    nextFrame.copyTo(newFrame);
-    //get the logpolar representation of it to fill newFrameLogPolar again
-    IplImage img = newFrame;
-    IplImage* src = &img;
-    IplImage* dst = cvCreateImage( cvGetSize(src), 8, 1  );
-    //cvLogPolar should go faster with a fixed mapping and/or no interpolation; also, image size will change!
-    cvLogPolar( src, dst, cvPoint2D32f(newFrame.size().width/2,newFrame.size().height/2), 80, CV_INTER_LINEAR+CV_WARP_FILL_OUTLIERS );
-    Mat(dst).colRange(Range(0,420)).convertTo(newFrameLogPolar, CV_32F, 1.0/255);
-    //NB colRange to get rid of the black corners that mess up the FFT result (?)
+    if (withRot)
+    {
+        //get the logpolar representation of it to fill newFramePolarDFT; this stuff is _slow_ , thats why its behind the if
+        Mat newFrameLogPolar;
+        IplImage img = nextFrame;
+        IplImage* src = &img;
+        IplImage* dst = cvCreateImage( cvGetSize(src), 8, 1  );
+        //cvLogPolar should go faster with a fixed mapping and/or no interpolation; also, image size will change!
+        cvLogPolar( src, dst, cvPoint2D32f(nextFrame.size().width/2,nextFrame.size().height/2), 80, CV_INTER_LINEAR+CV_WARP_FILL_OUTLIERS );
+        Mat(dst).colRange(Range(0,420)).convertTo(newFrameLogPolar, CV_32F, 1.0/255);
+        //NB colRange to get rid of the black corners that mess up the FFT result (?)
 
-    //finally, calculate the DFT of the logpolar representation of the image
-    Mat planes[] = {newFrameLogPolar, Mat::zeros(newFrameLogPolar.size(), CV_32F)}; //make it complex for FFT
-    Mat complexI;
-    merge(planes, 2, complexI );
+        //finally, calculate the DFT of the logpolar representation of the image
+        Mat planes[] = {newFrameLogPolar, Mat::zeros(newFrameLogPolar.size(), CV_32F)}; //make it complex for FFT
+        Mat complexI;
+        merge(planes, 2, complexI );
 
-    dft(complexI, complexI);  // maybe we can speed up here because we have only real input?
-    complexI.copyTo(newFramePolarDFT);
+        dft(complexI, complexI);  // maybe we can speed up here because we have only real input?
+        complexI.copyTo(newFramePolarDFT);
+    }
+
+    if (withTrans)
+    {
+        // fill newFrameDFT
+       // Mat planes2[] = {newFrame, Mat::zeros(newFrame.size(), CV_32F)};
+       // Mat complex2;
+       // merge(planes2, 2, complex2);
+       // dft(complex2, complex2);
+       // complex2.copyTo(newFrameDFT);
+    }
 
     return;
 }
 
-Point2f PhaseCorrelation::calculateCorrelation()
+
+Vec4f PhaseCorrelation::findCorrelation()
+{
+    // first get the scaling and rotation
+    Vec2f rot = findRotation();
+
+    //oh dear, now we have to calculate a different DFT after all; TODO manage stuff a bit more intelligently...
+
+    return Vec4f(0,0,0,0);
+}
+
+Vec2f PhaseCorrelation::findRotation()
+{
+    if (oldFramePolarDFT.empty()) return Point2f(0,0);  //if withRot == false, oldFramePolarDFT will be empty anyway
+
+    Vec2f result = crossPowerSpectrumPeak(oldFramePolarDFT, newFramePolarDFT);
+
+    // reverse logpolar transform
+    result[1] = result[1] * 360.0 / (float) oldFramePolarDFT.size().height ; //in degrees obviously
+
+
+    return result;
+}
+
+Vec2f PhaseCorrelation::findTranslation()
+{
+    if (oldFrameDFT.empty() ) return Point2f(0,0); //if withTrans == false, oldFrameDFT will be empty anyway
+
+    return crossPowerSpectrumPeak(oldFrameDFT, newFrameDFT);
+}
+
+Vec2f PhaseCorrelation::crossPowerSpectrumPeak(const Mat& dft1, const Mat& dft2)
 {
 
-    if (oldFramePolarDFT.empty() ) return Point2f(0,0);  //check if we have two frames
-
-    //imshow("rg", oldFrameLogPolar);
-
     Mat complexI;
-    mulSpectrums(oldFramePolarDFT, newFramePolarDFT, complexI, 0, true); //do the multiplications
+    mulSpectrums(dft1, dft2, complexI, 0, true); //do the multiplications
 
     Mat images[2];
 
@@ -71,22 +110,28 @@ Point2f PhaseCorrelation::calculateCorrelation()
     merge(images, 2, complexI);
     */
 
+
+    // third step: transform back and find peak
+
     idft(complexI, complexI);  //transform back
     split(complexI, images);
 
-    //find max in real part
+    //find max
     Point minLoc, maxLoc;
     double minVal, maxVal;
     minMaxLoc(images[0], &minVal, &maxVal, &minLoc, &maxLoc);
 
-    //cout << maxLoc.x << " " << maxLoc.y << endl;
-    //cout << maxVal << " " << minVal << endl;
+    //TODO: get subpixel accuracy here!
 
-    //Mat result1;
-    //images[0].convertTo(result1, CV_8U, 1.0 / maxVal);
-    //imshow("peak values", result1);
+    int width = images[0].size().width;
+    int height = images[0].size().height;
 
-    Point2f result = maxLoc;
+    if (maxLoc.x > (width / 2))
+        maxLoc.x = maxLoc.x - width;
 
-    return result;
+    if (maxLoc.y > (height / 2))
+        maxLoc.y = maxLoc.y - height;
+
+    return Vec2f(maxLoc.x, maxLoc.y);
+
 }
