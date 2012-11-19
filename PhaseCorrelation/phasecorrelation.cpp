@@ -39,9 +39,10 @@ Vec4f PhaseCorrelation::findCorrelation()
     {
         Mat rotMat = getRotationMatrix2D( Point2f(oldFrame.size().width/2, oldFrame.size().height/2), rot.y, rot.x);
         Mat oldRotated;
-        warpAffine(oldFrame, oldRotated, rotMat, Size(240,240) );
+        warpAffine(oldFrame, oldRotated, rotMat, oldFrame.size() );
 
-        trans = phaseCorrelate(oldRotated, newFrame(Rect(200, 120, 240, 240)));
+        //trans = phaseCorrelate(oldRotated, newFrame(Rect(200, 120, 240, 240)));
+        trans = phaseCorrelate(oldRotated, newFrame);
     }
     else   // newFrame is bigger than oldFrame, so turn newFrame
     {
@@ -77,11 +78,9 @@ Point2d PhaseCorrelation::findRotation()
     Point2d result = phaseCorrelate(oldFramePolar, newFramePolar);
 
     // reverse logpolar transform
-    result.y = result.y * 360.0 / (float) oldFramePolar.size().height ; //in degrees obviously
+    result.y = result.y * -360.0 / (float) oldFramePolar.size().height ; //in degrees obviously
     //result[0] = exp result[0]  *  ....
-
     result.x = 1;
-    result.y = 0;
 
     return result;
 }
@@ -104,7 +103,7 @@ void PhaseCorrelation::calculatePolar(const Mat& src, Mat& dst)
     IplImage* img2 = &img;
     IplImage* logPolar = cvCreateImage( cvGetSize(img2), 8, 1  );
     //cvLogPolar should go faster with a fixed mapping and/or no interpolation; also, image size will change!
-    cvLogPolar( img2, logPolar, cvPoint2D32f(src.size().width/2, src.size().height/2), 80, CV_INTER_LINEAR+CV_WARP_FILL_OUTLIERS );
+    cvLogPolar( img2, logPolar, cvPoint2D32f(src.size().width/2, src.size().height), 80, CV_INTER_LINEAR+CV_WARP_FILL_OUTLIERS );
     Mat(logPolar).colRange(Range(0,420)).convertTo(dst, CV_32F, 1.0/255);
 
 }
