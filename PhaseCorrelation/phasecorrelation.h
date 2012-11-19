@@ -49,17 +49,13 @@ class PhaseCorrelation
         PhaseCorrelation();
         void insertFrame(const Mat& nextFrame);
         Vec4f findCorrelation(); //the whole package
-        Vec2f findRotation();    //only calculate rotation and scaling
-        Vec2f findTranslation(); //only calculate translation
+        Point2d findRotation();    //only calculate rotation and scaling
+        Point2d findTranslation(); //only calculate translation
+        void calculatePolar(const Mat& src, Mat& dst);
     protected:
     private:
-        Vec2f crossPowerSpectrumPeak(const Mat& dft1, const Mat& dft2);
-        void calculatePolarDFT(const Mat& src, Mat& dst);
-        void calculateDFT(const Mat& src, Mat& dst);
-        Mat oldFramePolarDFT;
-        Mat newFramePolarDFT;
-        Mat oldFrameDFT;
-        Mat newFrameDFT;
+        Mat oldFramePolar;
+        Mat newFramePolar;
         Mat oldFrame;
         Mat newFrame;
 };

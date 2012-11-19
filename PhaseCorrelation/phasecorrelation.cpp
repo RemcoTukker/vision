@@ -16,13 +16,11 @@ PhaseCorrelation::PhaseCorrelation()
 void PhaseCorrelation::insertFrame(const Mat& nextFrame)  //frame should be 640*480 for now!
 {
     //make place for the new frame and move the previous frame to the old frame variables
-    swap(oldFramePolarDFT, newFramePolarDFT); //is swap actually a good idea here?
-    swap(oldFrameDFT, newFrameDFT);
+    swap(oldFramePolar, newFramePolar); //is swap actually a good idea here?
     swap(oldFrame, newFrame);
 
-    newFrameDFT.release();        //make the new ones empty, so that we know whether they are filled and up to date or not
-    newFramePolarDFT.release();
-    nextFrame.copyTo(newFrame);
+    newFramePolar.release();        //make the new ones empty, so that we know whether they are filled and up to date or not
+    nextFrame.convertTo(newFrame, CV_32F, 1.0/255);
 
     return;
 }
@@ -33,173 +31,82 @@ Vec4f PhaseCorrelation::findCorrelation()
     if (oldFrame.empty()) return Vec4f(0,0,0,0);
 
     // first get the scaling and rotation
-    Vec2f rot = findRotation();
+    Point2d rot = findRotation();
 
     //use this rotation and scaling to calculate a new version of newFrame or oldFrame, depending on which one is bigger
-    Vec2f trans;
-    if (rot[0] > 1)  // oldFrame is bigger than newFrame, so turn oldFrame
+    Point2d trans;
+    if (rot.x > 1)  // oldFrame is bigger than newFrame, so turn oldFrame
     {
-        Mat rotMat = getRotationMatrix2D( Point2f(oldFrame.size().width/2, oldFrame.size().height/2), rot[1], rot[0]);
+        Mat rotMat = getRotationMatrix2D( Point2f(oldFrame.size().width/2, oldFrame.size().height/2), rot.y, rot.x);
         Mat oldRotated;
         warpAffine(oldFrame, oldRotated, rotMat, Size(240,240) );
 
-        Mat dftready, oldRotatedDFT;
-        oldRotated.convertTo(dftready, CV_32F, 1.0/255);
-        calculateDFT(dftready, oldRotatedDFT);
-
-        Mat newCroppedDFT;
-        if (newFrameDFT.empty())
-        {
-            Mat dftready;
-            Rect centerSquare(200, 120, 240, 240);
-            newFrame(centerSquare).convertTo(dftready, CV_32F, 1.0/255);
-            calculateDFT(dftready, newCroppedDFT);
-        }
-
-        trans = crossPowerSpectrumPeak(oldRotatedDFT, newCroppedDFT);
+        trans = phaseCorrelate(oldRotated, newFrame(Rect(200, 120, 240, 240)));
     }
     else   // newFrame is bigger than oldFrame, so turn newFrame
     {
-        Mat oldCroppedDFT;
-        if (oldFrameDFT.empty())
-        {
-            Mat dftready;
-            Rect centerSquare(200, 120, 240, 240);
-            oldFrame(centerSquare).convertTo(dftready, CV_32F, 1.0/255);
-            calculateDFT(dftready, oldCroppedDFT);
-        }
 
-        Mat rotMat = getRotationMatrix2D( Point2f(newFrame.size().width/2, newFrame.size().height/2), rot[1], rot[0]);
+        Mat rotMat = getRotationMatrix2D( Point2f(newFrame.size().width/2, newFrame.size().height/2), rot.y, rot.x);
         Mat newRotated;
-        warpAffine(newFrame, newRotated, rotMat, Size(240,240) );
+        //warpAffine(newFrame, newRotated, rotMat, Size(240,240) ); // the size argument just gives left top corner, not middle!
+        warpAffine(newFrame, newRotated, rotMat, newFrame.size() );
 
-        Mat dftready, newRotatedDFT;
-        newRotated.convertTo(dftready, CV_32F, 1.0/255);
-        calculateDFT(dftready, newRotatedDFT);
+        imshow("srtg", newRotated);
 
-        trans = crossPowerSpectrumPeak(oldCroppedDFT, newRotatedDFT);
+        //trans = phaseCorrelate(oldFrame(Rect(200, 120, 240, 240)), newRotated);
+        trans = phaseCorrelate(oldFrame, newRotated);
     }
 
-    return Vec4f(trans[0],trans[1],rot[0],rot[1]);
+    return Vec4f(trans.x,trans.y,rot.x,rot.y);
 }
 
-Vec2f PhaseCorrelation::findRotation()
+Point2d PhaseCorrelation::findRotation()
 {
-    if (oldFrame.empty()) return Vec2f(0,0);
+    if (oldFrame.empty()) return Point2d(0,0);
 
-    if (oldFramePolarDFT.empty())
+    if (oldFramePolar.empty())
     {
-        calculatePolarDFT(oldFrame, oldFramePolarDFT);
+        calculatePolar(oldFrame, oldFramePolar);
     }
 
-    if (newFramePolarDFT.empty())
+    if (newFramePolar.empty())
     {
-        calculatePolarDFT(newFrame, newFramePolarDFT);
+        calculatePolar(newFrame, newFramePolar);
     }
 
-    Vec2f result = crossPowerSpectrumPeak(oldFramePolarDFT, newFramePolarDFT);
+    Point2d result = phaseCorrelate(oldFramePolar, newFramePolar);
 
     // reverse logpolar transform
-    result[1] = result[1] * 360.0 / (float) oldFramePolarDFT.size().height ; //in degrees obviously
+    result.y = result.y * 360.0 / (float) oldFramePolar.size().height ; //in degrees obviously
     //result[0] = exp result[0]  *  ....
+
+    result.x = 1;
+    result.y = 0;
 
     return result;
 }
 
-Vec2f PhaseCorrelation::findTranslation()
+Point2d PhaseCorrelation::findTranslation()
 {
-    if (oldFrame.empty() ) return Vec2f(0,0);
+    if (oldFrame.empty() ) return Point2d(0,0);
 
-    if (oldFrameDFT.empty())
-    {
-        Mat dftready;
-        oldFrame.convertTo(dftready, CV_32F, 1.0/255);
-        calculateDFT(dftready, oldFrameDFT);
-    }
-
-    if (newFrameDFT.empty())
-    {
-        Mat dftready;
-        newFrame.convertTo(dftready, CV_32F, 1.0/255);
-        calculateDFT(dftready, newFrameDFT);
-    }
-
-    return crossPowerSpectrumPeak(oldFrameDFT, newFrameDFT);
+    return phaseCorrelate(oldFrame, newFrame);
 }
 
-Vec2f PhaseCorrelation::crossPowerSpectrumPeak(const Mat& dft1, const Mat& dft2)
+
+void PhaseCorrelation::calculatePolar(const Mat& src, Mat& dst)
 {
-
-    Mat complexI;
-    mulSpectrums(dft1, dft2, complexI, 0, true); //do the multiplications
-
-    Mat images[2];
-
-    /* //were supposed to do this, but it messes up result?
-    split( complexI, images ); //images[0] real, images[1] imaginary
-
-    // Compute the magnitude of the spectrum components: Mag = sqrt(Re^2 + Im^2)
-    Mat imageMag, imageImMag;
-    pow( images[0], 2.0, imageMag );
-
-    pow( images[1], 2.0, imageImMag );
-    add( imageMag, imageImMag, imageMag );
-    pow( imageMag, 0.5, imageMag );
-
-    divide( images[0], imageMag + 2.0, images[0]);
-    divide( images[1], imageMag + 2.0, images[1]);
-
-    merge(images, 2, complexI);
-*/
-
-
-    // third step: transform back and find peak
-
-    idft(complexI, complexI);  //transform back
-    split(complexI, images);
-
-    //find max
-    Point minLoc, maxLoc;
-    double minVal, maxVal;
-    minMaxLoc(images[0], &minVal, &maxVal, &minLoc, &maxLoc);
-
-    //TODO: get subpixel accuracy here!
-
-    int width = images[0].size().width;
-    int height = images[0].size().height;
-
-    if (maxLoc.x > (width / 2))
-        maxLoc.x = maxLoc.x - width;
-
-    if (maxLoc.y > (height / 2))
-        maxLoc.y = maxLoc.y - height;
-
-    return Vec2f(maxLoc.x, maxLoc.y);
-
-}
-
-void PhaseCorrelation::calculatePolarDFT(const Mat& src, Mat& dst)
-{
-    //get the logpolar representation of it to fill newFramePolarDFT; this stuff is _slow_
+    //get the logpolar representation of src Mat; this stuff is _slow_
+    Mat src2;
+    src.convertTo(src2, CV_8U, 255);
     Mat frameLogPolar;
-    IplImage img = src;
+    IplImage img = src2;
     IplImage* img2 = &img;
     IplImage* logPolar = cvCreateImage( cvGetSize(img2), 8, 1  );
     //cvLogPolar should go faster with a fixed mapping and/or no interpolation; also, image size will change!
     cvLogPolar( img2, logPolar, cvPoint2D32f(src.size().width/2, src.size().height/2), 80, CV_INTER_LINEAR+CV_WARP_FILL_OUTLIERS );
-    Mat(logPolar).colRange(Range(0,420)).convertTo(frameLogPolar, CV_32F, 1.0/255);
-    //NB colRange to get rid of the black corners that mess up the FFT result (?)
-
-    //finally, calculate the DFT of the logpolar representation of the image
-    calculateDFT(frameLogPolar, dst);
+    Mat(logPolar).colRange(Range(0,420)).convertTo(dst, CV_32F, 1.0/255);
 
 }
 
-void PhaseCorrelation::calculateDFT(const Mat& src, Mat& dst)
-{
-    Mat planes[] = {src, Mat::zeros(src.size(), CV_32F)}; //make it 2 channel for FFT
-    Mat complexI;
-    merge(planes, 2, complexI );
-    dft(complexI, dst);  // maybe we can speed up here because we have only real input?
-}
 
