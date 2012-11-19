@@ -43,32 +43,41 @@ Vec4f PhaseCorrelation::findCorrelation()
         Mat oldRotated;
         warpAffine(oldFrame, oldRotated, rotMat, Size(240,240) );
 
-        Mat dftready;
+        Mat dftready, oldRotatedDFT;
         oldRotated.convertTo(dftready, CV_32F, 1.0/255);
         calculateDFT(dftready, oldRotatedDFT);
 
-        //dftready = newFrame.colRange().rowRange();
-
-        //TODO make only dft of part of the image
+        Mat newCroppedDFT;
         if (newFrameDFT.empty())
         {
             Mat dftready;
-            newFrame.convertTo(dftready, CV_32F, 1.0/255);
-            calculateDFT(dftready, newFrameDFT);
+            Rect centerSquare(200, 120, 240, 240);
+            newFrame(centerSquare).convertTo(dftready, CV_32F, 1.0/255);
+            calculateDFT(dftready, newCroppedDFT);
         }
 
         trans = crossPowerSpectrumPeak(oldRotatedDFT, newCroppedDFT);
     }
     else   // newFrame is bigger than oldFrame, so turn newFrame
     {
+        Mat oldCroppedDFT;
         if (oldFrameDFT.empty())
         {
             Mat dftready;
-            oldFrame.convertTo(dftready, CV_32F, 1.0/255);
-            calculateDFT(dftready, oldFrameDFT);
+            Rect centerSquare(200, 120, 240, 240);
+            oldFrame(centerSquare).convertTo(dftready, CV_32F, 1.0/255);
+            calculateDFT(dftready, oldCroppedDFT);
         }
 
-        //trans = crossPowerSpectrumPeak(oldCroppedDFT, newRotatedDFT);
+        Mat rotMat = getRotationMatrix2D( Point2f(newFrame.size().width/2, newFrame.size().height/2), rot[1], rot[0]);
+        Mat newRotated;
+        warpAffine(newFrame, newRotated, rotMat, Size(240,240) );
+
+        Mat dftready, newRotatedDFT;
+        newRotated.convertTo(dftready, CV_32F, 1.0/255);
+        calculateDFT(dftready, newRotatedDFT);
+
+        trans = crossPowerSpectrumPeak(oldCroppedDFT, newRotatedDFT);
     }
 
     return Vec4f(trans[0],trans[1],rot[0],rot[1]);
@@ -141,7 +150,7 @@ Vec2f PhaseCorrelation::crossPowerSpectrumPeak(const Mat& dft1, const Mat& dft2)
     divide( images[1], imageMag + 2.0, images[1]);
 
     merge(images, 2, complexI);
-    */
+*/
 
 
     // third step: transform back and find peak
@@ -171,7 +180,7 @@ Vec2f PhaseCorrelation::crossPowerSpectrumPeak(const Mat& dft1, const Mat& dft2)
 
 void PhaseCorrelation::calculatePolarDFT(const Mat& src, Mat& dst)
 {
-    //get the logpolar representation of it to fill newFramePolarDFT; this stuff is _slow_ , thats why its behind the if
+    //get the logpolar representation of it to fill newFramePolarDFT; this stuff is _slow_
     Mat frameLogPolar;
     IplImage img = src;
     IplImage* img2 = &img;
